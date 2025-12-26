@@ -29,9 +29,19 @@ const sidebar = $('bookmarksSidebar');
 const sidebarOverlay = $('sidebarOverlay');
 const closeSidebarBtn = $('closeSidebarBtn');
 const bookmarkList = $('bookmarkList');
+const bookmarkSearchInput = $('bookmarkSearchInput');
 const tagsGrid = $('tagsGrid');
 const contextMenu = $('contextMenu');
 const deleteTagBtn = $('deleteTagBtn');
+const changeIconBtn = $('changeIconBtn');
+const iconPickerModal = $('iconPickerModal');
+const iconPickerOverlay = $('iconPickerOverlay');
+const closeIconPicker = $('closeIconPicker');
+const iconSearchInput = $('iconSearchInput');
+const iconGrid = $('iconGrid');
+const customIconSection = $('customIconSection');
+const customIconUrl = $('customIconUrl');
+const applyCustomIcon = $('applyCustomIcon');
 const prevPageBtn = $('prevPageBtn');
 const nextPageBtn = $('nextPageBtn');
 
@@ -234,6 +244,69 @@ bookmarksBtn.onclick = openSidebar;
 closeSidebarBtn.onclick = closeSidebar;
 sidebarOverlay.onclick = closeSidebar;
 
+// Bookmark search functionality
+let allBookmarks = []; // Store all bookmarks for filtering
+
+bookmarkSearchInput?.addEventListener('input', (e) => {
+    const query = e.target.value.trim().toLowerCase();
+    if (query) {
+        searchBookmarks(query);
+    } else {
+        loadBookmarks();
+    }
+});
+
+function searchBookmarks(query) {
+    if (!chrome?.bookmarks) return;
+
+    chrome.bookmarks.search(query, results => {
+        bookmarkList.innerHTML = '';
+
+        if (results.length === 0) {
+            bookmarkList.innerHTML = '<p class="placeholder-text" style="color: #888;">未找到匹配的书签</p>';
+            return;
+        }
+
+        // Filter only bookmarks with URLs (not folders)
+        const bookmarks = results.filter(item => item.url);
+
+        bookmarks.forEach(node => {
+            const div = document.createElement('div');
+            div.className = 'bookmark-item';
+            const isAdded = desktopTags.some(t => t.url === node.url);
+            const host = new URL(node.url).hostname;
+
+            div.innerHTML = `
+              <a class="bookmark-link" href="${node.url}" target="_blank">
+                <img src="https://www.google.com/s2/favicons?domain=${host}&sz=32" alt="">
+                <span>${node.title || node.url}</span>
+              </a>
+              ${isAdded
+                    ? '<span class="added-badge">✓ 已添加</span>'
+                    : `<button class="add-btn" data-url="${node.url}" data-title="${node.title || ''}" data-host="${host}">
+                    <svg viewBox="0 0 24 24" stroke-width="2" fill="none"><path d="M12 5v14M5 12h14"/></svg>
+                   </button>`
+                }
+            `;
+
+            const addBtn = div.querySelector('.add-btn');
+            addBtn?.addEventListener('click', e => {
+                e.stopPropagation();
+                const tag = {
+                    url: addBtn.dataset.url,
+                    title: addBtn.dataset.title,
+                    icon: `https://www.google.com/s2/favicons?domain=${addBtn.dataset.host}&sz=256`
+                };
+                if (addTag(tag)) {
+                    addBtn.outerHTML = '<span class="added-badge">✓ 已添加</span>';
+                }
+            });
+
+            bookmarkList.appendChild(div);
+        });
+    });
+}
+
 function loadBookmarks() {
     if (!chrome?.bookmarks) {
         bookmarkList.innerHTML = '<p class="placeholder-text" style="color: #888;">书签功能仅在扩展中可用</p>';
@@ -241,9 +314,10 @@ function loadBookmarks() {
     }
 
     bookmarkList.innerHTML = '';
+    if (bookmarkSearchInput) bookmarkSearchInput.value = '';
 
     // 1. Get Recent Bookmarks
-    chrome.bookmarks.getRecent(10, recentItems => {
+    chrome.bookmarks.getRecent(30, recentItems => {
         if (recentItems && recentItems.length > 0) {
             const recentFolder = {
                 title: '最近添加',
@@ -291,7 +365,7 @@ function renderNode(node, container) {
             const tag = {
                 url: addBtn.dataset.url,
                 title: addBtn.dataset.title,
-                icon: `https://www.google.com/s2/favicons?domain=${addBtn.dataset.host}&sz=128`
+                icon: `https://www.google.com/s2/favicons?domain=${addBtn.dataset.host}&sz=256`
             };
             if (addTag(tag)) {
                 addBtn.outerHTML = '<span class="added-badge">✓ 已添加</span>';
@@ -387,6 +461,64 @@ function loadTags() {
     }
 }
 
+// Get the best icon URL for a tag
+function getBestIconUrl(iconUrl, siteUrl) {
+    // If iconUrl is a custom icon (data: URL, Simple Icons, or other custom source), use it directly
+    if (iconUrl && (
+        iconUrl.startsWith('data:') ||
+        iconUrl.includes('simpleicons.org') ||
+        !iconUrl.includes('s2/favicons')
+    )) {
+        return iconUrl;
+    }
+
+    // Otherwise, use Google's favicon service with high resolution
+    try {
+        const url = new URL(siteUrl);
+        const domain = url.hostname;
+        return `https://www.google.com/s2/favicons?domain=${domain}&sz=256`;
+    } catch {
+        return iconUrl;
+    }
+}
+
+// Generate a beautiful gradient SVG fallback icon
+function generateFallbackIcon(title) {
+    const char = (title || '?').charAt(0).toUpperCase();
+
+    // Generate consistent color based on first character
+    const colors = [
+        ['#667eea', '#764ba2'], // Purple
+        ['#f093fb', '#f5576c'], // Pink
+        ['#4facfe', '#00f2fe'], // Blue
+        ['#43e97b', '#38f9d7'], // Green
+        ['#fa709a', '#fee140'], // Orange-Pink
+        ['#a8edea', '#fed6e3'], // Soft cyan-pink
+        ['#ff9a9e', '#fecfef'], // Light pink
+        ['#ffecd2', '#fcb69f'], // Peach
+        ['#a18cd1', '#fbc2eb'], // Lavender
+        ['#fad0c4', '#ffd1ff'], // Rose
+        ['#89f7fe', '#66a6ff'], // Sky blue
+        ['#cd9cf2', '#f6f3ff'], // Light purple
+    ];
+
+    const colorIndex = char.charCodeAt(0) % colors.length;
+    const [color1, color2] = colors[colorIndex];
+
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+        <defs>
+            <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" style="stop-color:${color1}"/>
+                <stop offset="100%" style="stop-color:${color2}"/>
+            </linearGradient>
+        </defs>
+        <rect width="100" height="100" rx="22" fill="url(%23grad)"/>
+        <text x="50" y="62" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="45" font-weight="600" fill="white">${char}</text>
+    </svg>`;
+
+    return 'data:image/svg+xml,' + encodeURIComponent(svg);
+}
+
 function renderTags() {
     tagsGrid.innerHTML = '';
     // Render Dots
@@ -434,15 +566,29 @@ function renderTags() {
             a.style.animationDelay = `${i * 0.05}s`;
         }
 
-        // Use higher resolution favicon (128px) for better quality on rounded icons
-        const iconUrl = tag.icon.includes('s2/favicons')
-            ? tag.icon.replace(/sz=\d+/, 'sz=128')
-            : tag.icon;
+        // Create icon element
+        const img = document.createElement('img');
+        img.className = 'tag-icon';
+        img.draggable = false;
+        img.alt = '';
 
-        a.innerHTML = `
-      <img class="tag-icon" src="${iconUrl}" alt="" draggable="false" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%23667eea%22><rect rx=%224%22 width=%2224%22 height=%2224%22/><text x=%2212%22 y=%2216%22 text-anchor=%22middle%22 fill=%22white%22 font-size=%2212%22>${tag.title.charAt(0).toUpperCase()}</text></svg>'">
-      <span class="tag-title">${truncate(tag.title, 10)}</span>
-    `;
+        // Set up icon with fallback
+        const iconUrl = getBestIconUrl(tag.icon, tag.url);
+        const fallbackSvg = generateFallbackIcon(tag.title);
+
+        img.src = iconUrl;
+        img.onerror = function () {
+            this.onerror = null;
+            this.src = fallbackSvg;
+        };
+
+        // Create title element
+        const span = document.createElement('span');
+        span.className = 'tag-title';
+        span.textContent = truncate(tag.title, 10);
+
+        a.appendChild(img);
+        a.appendChild(span);
 
         // Context Menu
         a.oncontextmenu = e => {
@@ -499,7 +645,6 @@ function addDragHandlers(el) {
     }
 
     function onDrag(e) {
-        e.preventDefault();
         const touch = e.touches ? e.touches[0] : e;
         const deltaX = touch.clientX - startX;
         const deltaY = touch.clientY - startY;
@@ -531,6 +676,7 @@ function addDragHandlers(el) {
         }
 
         if (isDragging && dragClone) {
+            e.preventDefault(); // Only prevent default when actually dragging
             // Move clone with cursor
             dragClone.style.left = (initialX + deltaX) + 'px';
             dragClone.style.top = (initialY + deltaY) + 'px';
@@ -732,7 +878,186 @@ deleteTagBtn.onclick = () => {
     }
 };
 
-document.addEventListener('click', hideContextMenu);
+// ============ ICON PICKER ============
+const popularIcons = [
+    'google', 'github', 'youtube', 'twitter', 'facebook', 'instagram', 'linkedin', 'discord',
+    'apple', 'microsoft', 'amazon', 'netflix', 'spotify', 'reddit', 'tiktok', 'twitch',
+    'slack', 'notion', 'figma', 'dribbble', 'behance', 'medium', 'stackoverflow', 'npm',
+    'docker', 'kubernetes', 'react', 'vue', 'angular', 'nodejs', 'python', 'java',
+    'bilibili', 'wechat', 'weibo', 'zhihu', 'taobao', 'alipay', 'baidu', 'tencent',
+    'openai', 'chatgpt', 'gmail', 'googledrive', 'googlecloud', 'firebase', 'vercel', 'netlify'
+];
+
+// Color icon fallbacks (for custom colored letters)
+const colorIcons = [
+    { name: 'A', colors: ['#667eea', '#764ba2'] },
+    { name: 'B', colors: ['#f093fb', '#f5576c'] },
+    { name: 'C', colors: ['#4facfe', '#00f2fe'] },
+    { name: 'D', colors: ['#43e97b', '#38f9d7'] },
+    { name: 'E', colors: ['#fa709a', '#fee140'] },
+    { name: 'F', colors: ['#a8edea', '#fed6e3'] },
+    { name: 'G', colors: ['#ff9a9e', '#fecfef'] },
+    { name: 'H', colors: ['#ffecd2', '#fcb69f'] },
+    { name: 'I', colors: ['#a18cd1', '#fbc2eb'] },
+    { name: 'J', colors: ['#89f7fe', '#66a6ff'] },
+    { name: 'K', colors: ['#cd9cf2', '#f6f3ff'] },
+    { name: 'L', colors: ['#667eea', '#764ba2'] },
+];
+
+let currentTab = 'brands';
+
+changeIconBtn.onclick = () => {
+    // Save the URL before hiding context menu (which clears contextTagUrl)
+    const urlToEdit = contextTagUrl;
+    contextMenu.classList.remove('show'); // Hide menu without clearing URL
+    contextTagUrl = urlToEdit; // Restore the URL
+    openIconPicker();
+};
+
+function openIconPicker() {
+    iconPickerModal.classList.add('show');
+    iconPickerOverlay.classList.add('show');
+    iconSearchInput.value = '';
+    loadIcons('brands');
+}
+
+function closeIconPickerModal() {
+    iconPickerModal.classList.remove('show');
+    iconPickerOverlay.classList.remove('show');
+}
+
+closeIconPicker.onclick = closeIconPickerModal;
+iconPickerOverlay.onclick = closeIconPickerModal;
+
+// Tab switching
+document.querySelectorAll('.icon-tab').forEach(tab => {
+    tab.onclick = () => {
+        document.querySelectorAll('.icon-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentTab = tab.dataset.tab;
+
+        if (currentTab === 'custom') {
+            iconGrid.style.display = 'none';
+            customIconSection.style.display = 'block';
+        } else {
+            iconGrid.style.display = 'grid';
+            customIconSection.style.display = 'none';
+            loadIcons(currentTab);
+        }
+    };
+});
+
+// Load icons based on tab
+function loadIcons(tab, searchQuery = '') {
+    iconGrid.innerHTML = '<div class="icon-loading">加载中...</div>';
+
+    if (tab === 'brands') {
+        const icons = searchQuery
+            ? popularIcons.filter(name => name.toLowerCase().includes(searchQuery.toLowerCase()))
+            : popularIcons;
+
+        if (icons.length === 0) {
+            iconGrid.innerHTML = '<div class="no-icons">未找到匹配的图标</div>';
+            return;
+        }
+
+        iconGrid.innerHTML = '';
+        icons.forEach(name => {
+            const div = document.createElement('div');
+            div.className = 'icon-option';
+            div.title = name;
+            // Use Simple Icons CDN
+            const iconUrl = `https://cdn.simpleicons.org/${name}`;
+            div.innerHTML = `<img src="${iconUrl}" alt="${name}" onerror="this.style.display='none'">`;
+            div.onclick = () => selectIcon(iconUrl);
+            iconGrid.appendChild(div);
+        });
+    } else if (tab === 'colors') {
+        iconGrid.innerHTML = '';
+        colorIcons.forEach(icon => {
+            const div = document.createElement('div');
+            div.className = 'icon-option';
+            const svg = generateColorIcon(icon.name, icon.colors);
+            div.innerHTML = `<img src="${svg}" alt="${icon.name}">`;
+            div.onclick = () => selectIcon(svg);
+            iconGrid.appendChild(div);
+        });
+
+        // Add all letters A-Z
+        'MNOPQRSTUVWXYZ0123456789'.split('').forEach((char, i) => {
+            const colors = colorIcons[i % colorIcons.length].colors;
+            const div = document.createElement('div');
+            div.className = 'icon-option';
+            const svg = generateColorIcon(char, colors);
+            div.innerHTML = `<img src="${svg}" alt="${char}">`;
+            div.onclick = () => selectIcon(svg);
+            iconGrid.appendChild(div);
+        });
+    }
+}
+
+// Generate colored letter icon
+function generateColorIcon(char, [color1, color2]) {
+    // Use unique ID and proper encoding
+    const id = 'grad' + char + Date.now();
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><linearGradient id="${id}" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${color1}"/><stop offset="100%" stop-color="${color2}"/></linearGradient></defs><rect width="100" height="100" rx="22" fill="url(#${id})"/><text x="50" y="65" text-anchor="middle" font-family="system-ui,sans-serif" font-size="50" font-weight="600" fill="white">${char}</text></svg>`;
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+}
+
+// Search icons
+iconSearchInput.oninput = (e) => {
+    const query = e.target.value.trim();
+    if (currentTab !== 'custom') {
+        loadIcons(currentTab, query);
+    }
+};
+
+// Select an icon
+function selectIcon(iconUrl) {
+    console.log('selectIcon called with URL:', iconUrl);
+    console.log('contextTagUrl:', contextTagUrl);
+
+    if (!contextTagUrl) {
+        console.log('contextTagUrl is null, returning');
+        return;
+    }
+
+    // Update the tag's icon in desktopTags
+    const tag = desktopTags.find(t => t.url === contextTagUrl);
+    console.log('Found tag:', tag);
+
+    if (tag) {
+        tag.icon = iconUrl;
+        saveTags();
+        console.log('Tags saved, re-rendering');
+        renderTags();
+    }
+
+    closeIconPickerModal();
+    contextTagUrl = null;
+}
+
+// Apply custom icon URL
+applyCustomIcon.onclick = () => {
+    const url = customIconUrl.value.trim();
+    if (url && contextTagUrl) {
+        selectIcon(url);
+        customIconUrl.value = '';
+    }
+};
+
+document.addEventListener('click', (e) => {
+    // Only hide context menu and clear URL if icon picker is not open
+    if (contextMenu.classList.contains('show')) {
+        contextMenu.classList.remove('show');
+        // Only clear contextTagUrl if we're not opening the icon picker
+        if (!iconPickerModal.classList.contains('show') &&
+            !e.target.closest('#changeIconBtn')) {
+            contextTagUrl = null;
+        }
+    }
+});
 
 // ============ INIT ============
 loadTags();
+
